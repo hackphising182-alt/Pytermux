@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PyTermux - Web IDE</title>
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    <!-- Pyodide JS -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <style>
+        :root {
+            --bg: #121212;
+            --bg-light: #1e1e1e;
+            --text: #e0e0e0;
+            --accent: #00ff88;
+            --error: #ff5555;
+            --border: #333;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* Top Navigation Bar */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #000;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+        .logo {
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .logo::before {
+            content: '>';
+            color: var(--text);
+        }
+        .controls {
+            display: flex;
+            gap: 6px;
+        }
+        button {
+            background: var(--bg-light);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:active {
+            background: #333;
+        }
+        button.run-btn {
+            background: var(--accent);
+            color: #000;
+            font-weight: bold;
+            border: none;
+        }
+        
+        /* Main Layout */
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* Editor Panel */
+        .editor-panel {
+            flex: 1.5;
+            position: relative;
+            border-bottom: 2px solid var(--border);
+            overflow: hidden;
+        }
+        .CodeMirror {
+            position: absolute;
+            top: 0; bottom: 0; left: 0; right: 0;
+            height: auto !important;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        /* Terminal Panel */
+        .terminal-panel {
+            flex: 1;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .terminal-header {
+            background: #1a1a1a;
+            padding: 6px 12px;
+            font-size: 11px;
+            color: #888;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+        }
+        .terminal-output {
+            flex: 1;
+            padding: 12px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .term-line { min-height: 1.5em; }
+        .term-line.error { color: var(--error); }
+        .term-line.info { color: #888; font-style: italic; }
+        
+        /* Blinking Cursor */
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 14px;
+            background: var(--accent);
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+            margin-left: 4px;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        
+        /* Mobile tweaks */
+        @media (max-width: 600px) {
+            .logo span { display: none; }
+            .controls button { padding: 8px 10px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="navbar">
+        <div class="logo">PyTermux <span>v1.0</span></div>
+        <div class="controls">
+            <button onclick="installPackage()">📦 Pkg</button>
+            <button onclick="clearTerminal()">🧹 Clear</button>
+            <button class="run-btn" onclick="runPython()">▶ RUN</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="editor-panel">
+            <textarea id="code-editor"></textarea>
+        </div>
+        
+        <div class="terminal-panel">
+            <div class="terminal-header">
+                <span>TERMINAL</span>
+                <span id="status">Ready</span>
+            </div>
+            <div class="terminal-output" id="terminal">
+                <div class="term-line info">Python 3.11 (Pyodide WebAssembly) ready.</div>
+                <div class="term-line info">Tekan RUN untuk mengeksekusi kode.</div>
+                <div class="term-line info">--------------------------------------------------</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/python/python.min.js"></script>
+    
+    <script>
+        // Setup Editor
+        const editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
+            lineNumbers: true,
+            mode: 'python',
+            theme: 'dracula',
+            indentUnit: 4,
+            lineWrapping: true,
+            value: `print("Hello, Android!")\n\n# Coba import library\n# import math\n# print(math.pi)\n`
+        });
+
+        let pyodide = null;
+        const terminal = document.getElementById('terminal');
+        const statusEl = document.getElementById('status');
+
+        function printTerm(text, type = '') {
+            const div = document.createElement('div');
+            div.className = `term-line ${type}`;
+            div.textContent = text;
+            terminal.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function clearTerminal() {
+            terminal.innerHTML = '<div class="term-line info">Terminal cleared.</div>';
+        }
+
+        async function initPyodide() {
+            if (pyodide) return pyodide;
+            statusEl.textContent = "Loading...";
+            printTerm("Mengunduh Python engine...", "info");
+            try {
+                pyodide = await loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/"
+                });
+                
+                // Dukung fungsi input() pakai popup browser
+                pyodide.runPython(`
+import builtins
+import js
+
+def custom_input(prompt=""):
+    res = js.window.prompt(prompt)
+    if res is None:
+        raise EOFError("EOF when reading a line")
+    return res
+
+builtins.input = custom_input
+`);
+                
+                printTerm("Engine siap!", "info");
+                statusEl.textContent = "Ready";
+                return pyodide;
+            } catch (e) {
+                printTerm("Gagal memuat: " + e.message, "error");
+                statusEl.textContent = "Error";
+                throw e;
+            }
+        }
+
+        async function runPython() {
+            const code = editor.getValue();
+            if (!code.trim()) return;
+            
+            statusEl.textContent = "Running...";
+            printTerm(">>> Menjalankan script...", "info");
+            
+            try {
+                const py = await initPyodide();
+                
+                // Tangkap output print()
+                py.setStdout({ batched: (msg) => printTerm(msg) });
+                py.setStderr({ batched: (msg) => printTerm(msg, 'error') });
+                
+                await py.runPythonAsync(code);
+                
+                printTerm(">>> Selesai.", "info");
+                statusEl.textContent = "Ready";
+            } catch (err) {
+                printTerm(err.message, "error");
+                statusEl.textContent = "Error";
+            }
+        }
+
+        async function installPackage() {
+            const pkg = prompt("Nama package Python (contoh: numpy, pandas, requests):");
+            if (!pkg) return;
+            
+            statusEl.textContent = "Installing...";
+            printTerm(`>>> Installing ${pkg}...`, "info");
+            
+            try {
+                const py = await initPyodide();
+                await py.loadPackage('micropip');
+                const micropip = py.pyimport('micropip');
+                
+                await micropip.install(pkg);
+                printTerm(`>>> ${pkg} berhasil diinstall!`, "info");
+                statusEl.textContent = "Ready";
+            } catch (err) {
+                printTerm("Gagal install: " + err.message, "error");
+                statusEl.textContent = "Error";
+            }
+        }
+
+        // Resize pas keyboard Android muncul
+        window.addEventListener('resize', () => {
+            editor.setSize("100%", "100%");
+        });
+    </script>
+</body>
+</html>
